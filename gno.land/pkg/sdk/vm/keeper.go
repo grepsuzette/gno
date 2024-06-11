@@ -1,7 +1,5 @@
 package vm
 
-// TODO: move most of the logic in ROOT/gno.land/...
-
 import (
 	"bytes"
 	"context"
