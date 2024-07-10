@@ -59,116 +59,194 @@ func Println(args ...interface{}) {
 //	%t: formats a boolean value to "true" or "false".
 //	%%: outputs a literal %. Does not consume an argument.
 func Sprintf(format string, args ...interface{}) string {
-	// we use runes to handle multi-byte characters
-	sTor := []rune(format)
-	end := len(sTor)
 	argNum := 0
 	argLen := len(args)
-	buf := ""
-
-	for i := 0; i < end; {
-		isLast := i == end-1
-		c := string(sTor[i])
-
-		if isLast || c != "%" {
-			// we don't check for invalid format like a one ending with "%"
-			buf += string(c)
-			i++
-			continue
-		}
-
-		verb := string(sTor[i+1])
-		if verb == "%" {
-			buf += "%"
-			i += 2
-			continue
-		}
-
-		if argNum > argLen {
-			panic("invalid number of arguments to ufmt.Sprintf")
-		}
-		arg := args[argNum]
-		argNum++
-
-		switch verb {
-		case "s":
-			switch v := arg.(type) {
-			case interface{ String() string }:
-				buf += v.String()
-			case error:
-				buf += v.Error()
-			case string:
-				buf += v
-			default:
-				buf += fallback(verb, v)
+	var buf strings.Builder
+	verb := "" // a string like "%s". Single "%" is incompletely read
+	for _, curRune := range format {
+		if verb == "" {
+			if curRune == '%' {
+				verb = "%"
+				continue
+			} else {
+				buf.WriteRune(curRune)
 			}
-		case "c":
-			switch v := arg.(type) {
-			// rune is int32. Exclude overflowing numeric types and dups (byte, int32):
-			case rune:
-				buf += string(v)
-			case int:
-				buf += string(v)
-			case int8:
-				buf += string(v)
-			case int16:
-				buf += string(v)
-			case uint:
-				buf += string(v)
-			case uint8:
-				buf += string(v)
-			case uint16:
-				buf += string(v)
-			default:
-				buf += fallback(verb, v)
+		} else {
+			// complete verb
+			var arg interface{}
+			if curRune != '%' { // don't consume/use arg upon "%%"
+				if argNum > argLen {
+					panic("invalid number of arguments to ufmt.Sprintf: format=" + format + " nbArgs=" + string(argNum))
+				}
+				arg = args[argNum]
+				argNum++
 			}
-		case "d":
-			switch v := arg.(type) {
-			case int:
-				buf += strconv.Itoa(v)
-			case int8:
-				buf += strconv.Itoa(int(v))
-			case int16:
-				buf += strconv.Itoa(int(v))
-			case int32:
-				buf += strconv.Itoa(int(v))
-			case int64:
-				buf += strconv.Itoa(int(v))
-			case uint:
-				buf += strconv.FormatUint(uint64(v), 10)
-			case uint8:
-				buf += strconv.FormatUint(uint64(v), 10)
-			case uint16:
-				buf += strconv.FormatUint(uint64(v), 10)
-			case uint32:
-				buf += strconv.FormatUint(uint64(v), 10)
-			case uint64:
-				buf += strconv.FormatUint(v, 10)
-			default:
-				buf += fallback(verb, v)
-			}
-		case "t":
-			switch v := arg.(type) {
-			case bool:
-				if v {
-					buf += "true"
-				} else {
-					buf += "false"
+			verb = verb + string(curRune)
+			switch curRune {
+			case '%':
+				buf.WriteRune('%')
+			case 's':
+				switch v := arg.(type) {
+				case interface{ String() string }:
+					buf.WriteString(v.String())
+				case error:
+					buf.WriteString(v.Error())
+				case string:
+					buf.WriteString(v)
+				default:
+					buf.WriteString(fallback(verb, v))
+				}
+			case 'c':
+				switch v := arg.(type) {
+				case rune:
+					buf.WriteRune(v)
+				case int:
+					buf.WriteString(string(v))
+				case int8:
+					buf.WriteString(string(v))
+				case int16:
+					buf.WriteString(string(v))
+				case uint:
+					buf.WriteString(string(v))
+				case uint8:
+					buf.WriteString(string(v))
+				case uint16:
+					buf.WriteString(string(v))
+				default:
+					buf.WriteString(fallback(verb, v))
+				}
+			case 'd':
+				switch v := arg.(type) {
+				case int:
+					buf.WriteString(strconv.Itoa(v))
+				case int8:
+					buf.WriteString(strconv.Itoa(int(v)))
+				case int16:
+					buf.WriteString(strconv.Itoa(int(v)))
+				case int32:
+					buf.WriteString(strconv.Itoa(int(v)))
+				case int64:
+					buf.WriteString(strconv.Itoa(int(v)))
+				case uint:
+					buf.WriteString(strconv.FormatUint(uint64(v), 10))
+				case uint8:
+					buf.WriteString(strconv.FormatUint(uint64(v), 10))
+				case uint16:
+					buf.WriteString(strconv.FormatUint(uint64(v), 10))
+				case uint32:
+					buf.WriteString(strconv.FormatUint(uint64(v), 10))
+				case uint64:
+					buf.WriteString(strconv.FormatUint(v, 10))
+				default:
+					buf.WriteString(fallback(verb, v))
+				}
+			case 't':
+				switch v := arg.(type) {
+				case bool:
+					if v {
+						buf.WriteString("true")
+					} else {
+						buf.WriteString("false")
+					}
+				default:
+					buf.WriteString(fallback(verb, v))
 				}
 			default:
-				buf += fallback(verb, v)
+				buf.WriteString("(unhandled verb: %" + verb + ")")
 			}
-		// % handled before, as it does not consume an argument
-		default:
-			buf += "(unhandled verb: %" + verb + ")"
+			verb = ""
 		}
-
-		i += 2
+	}
+	if verb != "" {
+		buf.WriteString("%!(NOVERB)") // as in Go fmt.Sprintf("%")
 	}
 	if argNum < argLen {
-		panic("too many arguments to ufmt.Sprintf")
+		panic("too many arguments to ufmt.Sprintf: format=" + format + " nbArgs=" + string(argNum))
 	}
-	return buf
+	return buf.String()
+}
+
+// This function is used to mimic Go's fmt.Sprintf
+// specific behaviour of showing verb/type mismatches,
+// where for example:
+//
+//	fmt.Sprintf("%d", "foo") gives "%!d(string=foo)"
+//
+// Here:
+//
+//	fallback("%s", 8) -> "%!s(int=8)"
+//	fallback("%d", nil) -> "%!d(<nil>)", and so on.
+func fallback(verb string, arg interface{}) string {
+	if !strings.HasPrefix(verb, "%") {
+		panic("Invalid Sprintf verb " + verb)
+	}
+	verbLetter := verb[1:]
+	var s string
+	switch v := arg.(type) {
+	case string:
+		s = "string=" + v
+	case (interface{ String() string }):
+		s = "string=" + v.String()
+	case error:
+		// note: also "string=" in Go fmt
+		s = "string=" + v.Error()
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		// note: rune, byte would be dups, being aliases
+		if typename, e := typeToString(v); e != nil {
+			panic("should not happen")
+		} else {
+			s = typename + "=" + Sprintf("%d", v)
+		}
+	case bool:
+		if v {
+			s = "bool=true"
+		} else {
+			s = "bool=false"
+		}
+	case nil:
+		s = "<nil>"
+	default:
+		s = "(unhandled)"
+	}
+	return "%!" + verbLetter + "(" + s + ")"
+}
+
+// Get the name of the type of `v` as a string.
+// The recognized type of v is currently limited to native non-composite types.
+// An error is returned otherwise.
+func typeToString(v interface{}) (string, error) {
+	switch v.(type) {
+	case string:
+		return "string", nil
+	case int:
+		return "int", nil
+	case int8:
+		return "int8", nil
+	case int16:
+		return "int16", nil
+	case int32:
+		return "int32", nil
+	case int64:
+		return "int64", nil
+	case uint:
+		return "uint", nil
+	case uint8:
+		return "uint8", nil
+	case uint16:
+		return "uint16", nil
+	case uint32:
+		return "uint32", nil
+	case uint64:
+		return "uint64", nil
+	case float32:
+		return "float32", nil
+	case float64:
+		return "float64", nil
+	case bool:
+		return "bool", nil
+	default:
+		return "", errors.New("(unsupported type)")
+	}
 }
 
 // This function is used to mimic Go's fmt.Sprintf
