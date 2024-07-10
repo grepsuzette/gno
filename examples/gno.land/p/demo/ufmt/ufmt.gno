@@ -249,6 +249,85 @@ func typeToString(v interface{}) (string, error) {
 	}
 }
 
+// This function is used to mimic Go's fmt.Sprintf
+// specific behaviour of showing verb/type mismatches,
+// where for example:
+//
+//	fmt.Sprintf("%d", "foo") gives "%!d(string=foo)"
+//
+// Here:
+//
+//	fallback("s", 8) -> "%!s(int=8)"
+//	fallback("d", nil) -> "%!d(<nil>)", and so on.
+func fallback(verb string, arg interface{}) string {
+	var s string
+	switch v := arg.(type) {
+	case string:
+		s = "string=" + v
+	case (interface{ String() string }):
+		s = "string=" + v.String()
+	case error:
+		// note: also "string=" in Go fmt
+		s = "string=" + v.Error()
+	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		// note: rune, byte would be dups, being aliases
+		if typename, e := typeToString(v); e != nil {
+			panic("should not happen")
+		} else {
+			s = typename + "=" + Sprintf("%d", v)
+		}
+	case bool:
+		if v {
+			s = "bool=true"
+		} else {
+			s = "bool=false"
+		}
+	case nil:
+		s = "<nil>"
+	default:
+		s = "(unhandled)"
+	}
+	return "%!" + verb + "(" + s + ")"
+}
+
+// Get the name of the type of `v` as a string.
+// The recognized type of v is currently limited to native non-composite types.
+// An error is returned otherwise.
+func typeToString(v interface{}) (string, error) {
+	switch v.(type) {
+	case string:
+		return "string", nil
+	case int:
+		return "int", nil
+	case int8:
+		return "int8", nil
+	case int16:
+		return "int16", nil
+	case int32:
+		return "int32", nil
+	case int64:
+		return "int64", nil
+	case uint:
+		return "uint", nil
+	case uint8:
+		return "uint8", nil
+	case uint16:
+		return "uint16", nil
+	case uint32:
+		return "uint32", nil
+	case uint64:
+		return "uint64", nil
+	case float32:
+		return "float32", nil
+	case float64:
+		return "float64", nil
+	case bool:
+		return "bool", nil
+	default:
+		return "", errors.New("(unsupported type)")
+	}
+}
+
 // errMsg implements the error interface.
 type errMsg struct {
 	msg string
