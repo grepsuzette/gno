@@ -61,6 +61,8 @@ var (
 //go:embed views/*
 var defaultViewsFiles embed.FS
 
+var embedEtag string
+
 type Config struct {
 	RemoteAddr    string
 	CaptchaSite   string
@@ -161,6 +163,13 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 			path := r.RequestURI
 			handleNotFound(logger, app, &cfg, path, w, r)
 		})
+	}
+
+	// discussion about automatic support of ETag in embedfs:
+	// https://github.com/golang/go/issues/60940
+	// In the meantime, can use last binary binary modification time
+	if fileInfo, err := os.Stat(os.Args[0]); err == nil {
+		embedEtag = fmt.Sprintf("%d", fileInfo.ModTime().Unix())
 	}
 	return app
 }
@@ -495,13 +504,9 @@ func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config, filesys
 			return
 		}
 
-		// TODO: ModTime doesn't work for embed?
-		// because it uses time.Time() (see /usr/lib/go/src/embed/embed.go).
-		// In the meantime use gnoweb binary modification time?
-		// Note: ongoing discussion about automatic support of ETag in embedfs:
-		// https://github.com/golang/go/issues/60940
-		// w.Header().Set("ETag", fmt.Sprintf("%x", stat.ModTime().UnixNano()))
-		// w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%s", "31536000"))
+		// embedfs ModTime() uses time.Time() (/usr/lib/go/src/embed/embed.go)
+		// instead use a constant such as the modtime of the program's binary
+		w.Header().Set("ETag", embedEtag)
 		fileapp.ServeHTTP(w, r)
 	})
 }
