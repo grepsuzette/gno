@@ -23,7 +23,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/gotuna/gotuna"
 
-	// for static files
 	"github.com/gnolang/gno/gno.land/pkg/gnoweb/static"
 	"github.com/gnolang/gno/gno.land/pkg/sdk/vm" // for error types
 	// "github.com/gnolang/gno/tm2/pkg/sdk" // for baseapp (info, status)
@@ -60,7 +59,7 @@ var (
 )
 
 //go:embed views/*
-var DefaultViewsFiles embed.FS
+var defaultViewsFiles embed.FS
 
 type Config struct {
 	RemoteAddr    string
@@ -78,7 +77,6 @@ type Options struct {
 	Redirects       map[string]string
 	RootHandler     func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, is called after aliases and redirects (if either defines "/", this handler thus will never be called)
 	NotFoundHandler func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, will be used instead of default notFoundHandler
-	ViewFS          fs.FS                                                // if set, has precedence over ViewsDir. Used e.g. in gnAsteroid to append a template file without having to completely fork the views
 }
 
 func NewDefaultConfig() Config {
@@ -104,23 +102,16 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 	var viewFiles fs.FS
 	var styleFiles fs.FS
 
-	// Get specific views directory if specified
-	// 1. is opts.ViewFS set, if so use it
-	// 2. is cfg.ViewsDir set, if so os.DirFS(it)
-	// 3. otherwise use embed fs
-	if opts.ViewFS != nil {
-		viewFiles = opts.ViewFS
-	} else if cfg.ViewsDir != "" {
+	if cfg.ViewsDir != "" {
 		viewFiles = os.DirFS(cfg.ViewsDir)
 	} else {
 		var err error
-		viewFiles, err = fs.Sub(DefaultViewsFiles, "views")
+		viewFiles, err = fs.Sub(defaultViewsFiles, "views")
 		if err != nil {
 			panic("unable to get views directory from embed fs: " + err.Error())
 		}
 	}
 
-	// If StyleDir set, must serve alternative /static/{path:(?:css|font|img)/.+}
 	if cfg.StyleDir != "" {
 		logger.Info(fmt.Sprintf("StyleDir: %s", cfg.StyleDir))
 		styleFiles = os.DirFS(cfg.StyleDir)
@@ -132,11 +123,9 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 		Static:    static.EmbeddedStatic,
 	}
 
-	// realm aliases
 	for from, to := range opts.Aliases {
 		app.Router.Handle(from, handlerRealmAlias(logger, app, &cfg, to))
 	}
-	// http redirects
 	for from, to := range opts.Redirects {
 		app.Router.Handle(from, handlerRedirect(logger, app, &cfg, to))
 	}
