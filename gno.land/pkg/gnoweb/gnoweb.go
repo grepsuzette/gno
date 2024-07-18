@@ -33,17 +33,52 @@ const (
 	qFileStr = "vm/qfile"
 )
 
+var (
+	// realm aliases
+	Aliases = map[string]string{
+		"/":               "/r/gnoland/home",
+		"/about":          "/r/gnoland/pages:p/about",
+		"/gnolang":        "/r/gnoland/pages:p/gnolang",
+		"/ecosystem":      "/r/gnoland/pages:p/ecosystem",
+		"/partners":       "/r/gnoland/pages:p/partners",
+		"/testnets":       "/r/gnoland/pages:p/testnets",
+		"/start":          "/r/gnoland/pages:p/start",
+		"/license":        "/r/gnoland/pages:p/license",
+		"/game-of-realms": "/r/gnoland/pages:p/gor", // XXX: replace with gor realm
+		"/events":         "/r/gnoland/events",
+	}
+	// http redirects
+	Redirects = map[string]string{
+		"/r/demo/boards:gnolang/6": "/r/demo/boards:gnolang/3", // XXX: temporary
+		"/blog":                    "/r/gnoland/blog",
+		"/gor":                     "/game-of-realms",
+		"/grants":                  "/partners",
+		"/language":                "/gnolang",
+		"/getting-started":         "/start",
+		"/gophercon24":             "https://docs.gno.land",
+	}
+)
+
 //go:embed views/*
-var defaultViewsFiles embed.FS
+var DefaultViewsFiles embed.FS
 
 type Config struct {
 	RemoteAddr    string
 	CaptchaSite   string
 	FaucetURL     string
 	ViewsDir      string
+	StyleDir      string
 	HelpChainID   string
 	HelpRemote    string
 	WithAnalytics bool
+}
+
+type Options struct {
+	Aliases         map[string]string
+	Redirects       map[string]string
+	RootHandler     func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, is called after aliases and redirects (if either defines "/", this handler thus will never be called)
+	NotFoundHandler func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, will be used instead of default notFoundHandler
+	ViewFS          fs.FS                                                // if set, has precedence over ViewsDir. Used e.g. in gnAsteroid to append a template file without having to completely fork the views
 }
 
 func NewDefaultConfig() Config {
@@ -59,18 +94,36 @@ func NewDefaultConfig() Config {
 }
 
 func MakeApp(logger *slog.Logger, cfg Config) gotuna.App {
+	return MakeAppWithOptions(logger, cfg, Options{
+		Aliases:   Aliases,
+		Redirects: Redirects,
+	})
+}
+
+func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.App {
 	var viewFiles fs.FS
+	var styleFiles fs.FS
 
 	// Get specific views directory if specified
-	if cfg.ViewsDir != "" {
+	// 1. is opts.ViewFS set, if so use it
+	// 2. is cfg.ViewsDir set, if so os.DirFS(it)
+	// 3. otherwise use embed fs
+	if opts.ViewFS != nil {
+		viewFiles = opts.ViewFS
+	} else if cfg.ViewsDir != "" {
 		viewFiles = os.DirFS(cfg.ViewsDir)
 	} else {
-		// Get embed views
 		var err error
-		viewFiles, err = fs.Sub(defaultViewsFiles, "views")
+		viewFiles, err = fs.Sub(DefaultViewsFiles, "views")
 		if err != nil {
 			panic("unable to get views directory from embed fs: " + err.Error())
 		}
+	}
+
+	// If StyleDir set, must serve alternative /static/{path:(?:css|font|img)/.+}
+	if cfg.StyleDir != "" {
+		logger.Info(fmt.Sprintf("StyleDir: %s", cfg.StyleDir))
+		styleFiles = os.DirFS(cfg.StyleDir)
 	}
 
 	app := gotuna.App{
@@ -80,34 +133,15 @@ func MakeApp(logger *slog.Logger, cfg Config) gotuna.App {
 	}
 
 	// realm aliases
-	aliases := map[string]string{
-		"/":               "/r/gnoland/home",
-		"/about":          "/r/gnoland/pages:p/about",
-		"/gnolang":        "/r/gnoland/pages:p/gnolang",
-		"/ecosystem":      "/r/gnoland/pages:p/ecosystem",
-		"/partners":       "/r/gnoland/pages:p/partners",
-		"/testnets":       "/r/gnoland/pages:p/testnets",
-		"/start":          "/r/gnoland/pages:p/start",
-		"/license":        "/r/gnoland/pages:p/license",
-		"/game-of-realms": "/r/gnoland/pages:p/gor", // XXX: replace with gor realm
-		"/events":         "/r/gnoland/events",
-	}
-
-	for from, to := range aliases {
+	for from, to := range opts.Aliases {
 		app.Router.Handle(from, handlerRealmAlias(logger, app, &cfg, to))
 	}
 	// http redirects
-	redirects := map[string]string{
-		"/r/demo/boards:gnolang/6": "/r/demo/boards:gnolang/3", // XXX: temporary
-		"/blog":                    "/r/gnoland/blog",
-		"/gor":                     "/game-of-realms",
-		"/grants":                  "/partners",
-		"/language":                "/gnolang",
-		"/getting-started":         "/start",
-		"/gophercon24":             "https://docs.gno.land",
-	}
-	for from, to := range redirects {
+	for from, to := range opts.Redirects {
 		app.Router.Handle(from, handlerRedirect(logger, app, &cfg, to))
+	}
+	if opts.RootHandler != nil {
+		app.Router.Handle("/", opts.RootHandler(logger, app, &cfg))
 	}
 	// realm routes
 	// NOTE: see rePathPart.
@@ -118,16 +152,27 @@ func MakeApp(logger *slog.Logger, cfg Config) gotuna.App {
 
 	// other
 	app.Router.Handle("/faucet", handlerFaucet(logger, app, &cfg))
-	app.Router.Handle("/static/{path:.+}", handlerStaticFile(logger, app, &cfg))
+
+	if styleFiles != nil {
+		// This block merely serves css, font and img, allowing alternative styling.
+		// Note: in case this `if` clause is not entered, static/* assets would be
+		// served by the next line (namely, handlerStaticFile).
+		app.Router.Handle("/static/{path:(?:css|font|img)/.+}", handlerStaticFile(logger, app, &cfg, styleFiles))
+	}
+	app.Router.Handle("/static/{path:.+}", handlerStaticFile(logger, app, &cfg, app.Static))
 	app.Router.Handle("/favicon.ico", handlerFavicon(logger, app, &cfg))
 
 	// api
 	app.Router.Handle("/status.json", handlerStatusJSON(logger, app, &cfg))
 
-	app.Router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := r.RequestURI
-		handleNotFound(logger, app, &cfg, path, w, r)
-	})
+	if opts.NotFoundHandler != nil {
+		app.Router.NotFoundHandler = opts.NotFoundHandler(logger, app, &cfg)
+	} else {
+		app.Router.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			path := r.RequestURI
+			handleNotFound(logger, app, &cfg, path, w, r)
+		})
+	}
 	return app
 }
 
@@ -443,8 +488,8 @@ func makeRequest(log *slog.Logger, cfg *Config, qpath string, data []byte) (res 
 	return &qres.Response, nil
 }
 
-func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config) http.Handler {
-	fs := http.FS(app.Static)
+func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config, filesystem fs.FS) http.Handler {
+	fs := http.FS(filesystem)
 	fileapp := http.StripPrefix("/static", http.FileServer(fs))
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -462,6 +507,10 @@ func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config) http.Ha
 		}
 
 		// TODO: ModTime doesn't work for embed?
+		// No it is time.Time() (see /usr/lib/go/src/embed/embed.go).
+		// Ongoing discussion about automatic support of ETag in embedfs:
+		// https://github.com/golang/go/issues/60940
+		// In the meantime use gnoweb binary modification time?
 		// w.Header().Set("ETag", fmt.Sprintf("%x", stat.ModTime().UnixNano()))
 		// w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%s", "31536000"))
 		fileapp.ServeHTTP(w, r)
