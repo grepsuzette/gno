@@ -59,7 +59,7 @@ var (
 )
 
 //go:embed views/*
-var defaultViewsFiles embed.FS
+var defaultViewsFiles embed.FS // getter: DefaultViewsFiles()
 
 var embedEtag string
 
@@ -79,6 +79,7 @@ type Options struct {
 	Redirects       map[string]string
 	RootHandler     func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, is called after aliases and redirects (if either defines "/", this handler thus will never be called)
 	NotFoundHandler func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, will be used instead of default notFoundHandler
+	ViewFS          fs.FS                                                // if set, has precedence over ViewsDir
 }
 
 func NewDefaultConfig() Config {
@@ -104,7 +105,9 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 	var viewFiles fs.FS
 	var styleFiles fs.FS
 
-	if cfg.ViewsDir != "" {
+	if opts.ViewFS != nil {
+		viewFiles = opts.ViewFS
+	} else if cfg.ViewsDir != "" {
 		viewFiles = os.DirFS(cfg.ViewsDir)
 	} else {
 		var err error
@@ -561,4 +564,9 @@ func pathOf(diruri string) string {
 	}
 
 	panic(fmt.Sprintf("invalid dir-URI %q", diruri))
+}
+
+// Getter to defaultViewsFiles
+func DefaultViewsFiles() embed.FS {
+	return defaultViewsFiles
 }
