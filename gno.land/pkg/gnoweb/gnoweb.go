@@ -496,10 +496,10 @@ func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config, filesys
 		}
 
 		// TODO: ModTime doesn't work for embed?
-		// No it is time.Time() (see /usr/lib/go/src/embed/embed.go).
-		// Ongoing discussion about automatic support of ETag in embedfs:
-		// https://github.com/golang/go/issues/60940
+		// because it uses time.Time() (see /usr/lib/go/src/embed/embed.go).
 		// In the meantime use gnoweb binary modification time?
+		// Note: ongoing discussion about automatic support of ETag in embedfs:
+		// https://github.com/golang/go/issues/60940
 		// w.Header().Set("ETag", fmt.Sprintf("%x", stat.ModTime().UnixNano()))
 		// w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%s", "31536000"))
 		fileapp.ServeHTTP(w, r)
