@@ -61,14 +61,11 @@ var (
 //go:embed views/*
 var defaultViewsFiles embed.FS // getter: DefaultViewsFiles()
 
-var embedEtag string
-
 type Config struct {
 	RemoteAddr    string
 	CaptchaSite   string
 	FaucetURL     string
 	ViewsDir      string
-	StyleDir      string
 	HelpChainID   string
 	HelpRemote    string
 	WithAnalytics bool
@@ -80,6 +77,7 @@ type Options struct {
 	RootHandler     func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, is called after aliases and redirects (if either defines "/", this handler thus will never be called)
 	NotFoundHandler func(*slog.Logger, gotuna.App, *Config) http.Handler // if set, will be used instead of default notFoundHandler
 	ViewFS          fs.FS                                                // if set, has precedence over ViewsDir
+	StyleFS         fs.FS                                                // alternative directory containing css/, img/ and font/
 }
 
 func NewDefaultConfig() Config {
@@ -103,7 +101,7 @@ func MakeApp(logger *slog.Logger, cfg Config) gotuna.App {
 
 func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.App {
 	var viewFiles fs.FS
-	var styleFiles fs.FS
+	var styleFiles fs.FS = opts.StyleFS // nil means to use default assets
 
 	if opts.ViewFS != nil {
 		viewFiles = opts.ViewFS
@@ -115,11 +113,6 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 		if err != nil {
 			panic("unable to get views directory from embed fs: " + err.Error())
 		}
-	}
-
-	if cfg.StyleDir != "" {
-		logger.Info(fmt.Sprintf("StyleDir: %s", cfg.StyleDir))
-		styleFiles = os.DirFS(cfg.StyleDir)
 	}
 
 	app := gotuna.App{
@@ -148,9 +141,10 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 	app.Router.Handle("/faucet", handlerFaucet(logger, app, &cfg))
 
 	if styleFiles != nil {
-		// This block merely serves css, font and img, allowing alternative styling.
-		// Note: in case this `if` clause is not entered, static/* assets would be
-		// served by the next line (namely, handlerStaticFile).
+		// alternative styling for css, font and img.
+		// if assets are not found here, static/* assets are
+		// still handled by the next line after this if-block
+		// which works as a fallthrough.
 		app.Router.Handle("/static/{path:(?:css|font|img)/.+}", handlerStaticFile(logger, app, &cfg, styleFiles))
 	}
 	app.Router.Handle("/static/{path:.+}", handlerStaticFile(logger, app, &cfg, app.Static))
@@ -168,12 +162,6 @@ func MakeAppWithOptions(logger *slog.Logger, cfg Config, opts Options) gotuna.Ap
 		})
 	}
 
-	// discussion about automatic support of ETag in embedfs:
-	// https://github.com/golang/go/issues/60940
-	// In the meantime, can use last binary binary modification time
-	if fileInfo, err := os.Stat(os.Args[0]); err == nil {
-		embedEtag = fmt.Sprintf("%d", fileInfo.ModTime().Unix())
-	}
 	return app
 }
 
@@ -496,8 +484,10 @@ func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config, filesys
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		fpath := filepath.Clean(vars["path"])
+		logger.Debug("Serving ", "static", fpath)
 		f, err := fs.Open(fpath)
 		if os.IsNotExist(err) {
+			logger.Debug("Not found: " + fpath)
 			handleNotFound(logger, app, cfg, fpath, w, r)
 			return
 		}
@@ -507,9 +497,10 @@ func handlerStaticFile(logger *slog.Logger, app gotuna.App, cfg *Config, filesys
 			return
 		}
 
-		// embedfs ModTime() uses time.Time() (/usr/lib/go/src/embed/embed.go)
-		// instead use a constant such as the modtime of the program's binary
-		w.Header().Set("ETag", embedEtag)
+		// TODO: ModTime doesn't work for embed?
+		// w.Header().Set("ETag", fmt.Sprintf("%x", stat.ModTime().UnixNano()))
+		// w.Header().Set("Cache-Control", fmt.Sprintf("max-age=%s", "31536000"))
+		// Discussion about support of ETag in embedfs: https://github.com/golang/go/issues/60940
 		fileapp.ServeHTTP(w, r)
 	})
 }
