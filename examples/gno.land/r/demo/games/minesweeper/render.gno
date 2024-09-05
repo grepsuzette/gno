@@ -5,8 +5,6 @@ import (
 	"std"
 	"strconv"
 	"strings"
-
-	"gno.land/p/demo/ufmt"
 )
 
 // Underwater Minesweeper
@@ -32,36 +30,34 @@ func Intn(n int) int {
 func Render(path string) string {
 	out := "Underwater Minesweeper\n\n"
 	out += css()
-	pboard, x, y, debug := parsePath(path)
-	board := *pboard
-	title := ""
-	lost := false
-	// TODO hasWon
-	if x < 0 || x >= Width || y < 0 || y >= Height {
-		panic("Invalid input. Enter valid coordinates.")
-	} else if x > -1 && y > -1 {
-		board.Reveal(x, y)
-		if board.cells[y][x].IsMine {
-			lost = true
-			title = "🤯🤯🤯🤯🤯\n\n"
-			title += "Nice try, boomer 🤷\n\n"
-			title += "You hit a mine."
-		}
-		out += heading(title)
-		for y := range board {
-			for x := range board.cells[y] {
-				out += button(x, y, board.cells[y][x], lost)
-			}
-			out += "<br />"
-		}
-		out += footing()
+	board, x, y, debug := parsePath(path)
+	var title string
+	var lost bool
+	if x != -1 && y != -1 {
+		lost = !board.Reveal(x, y)
 	}
-	if debug {
-		out += ufmt.Sprintf(
-			"--- played x=%d y=%d height=%d path=%s error:%s",
-			x, y, std.GetHeight(), path, "",
-		)
+	if lost {
+		title = "🤯🤯🤯🤯🤯\n\n"
+		title += "Nice try, boomer 🤷\n\n"
+		title += "You hit a mine."
 	}
+
+	// display the minefield as a matrix of buttons
+	out += heading(title)
+	for y := range board.cells {
+		for x := range board.cells[y] {
+			out += button(x, y, board.cells[y][x], lost)
+		}
+		out += "<br />"
+	}
+	out += footing()
+
+	// if debug {
+	// 	out += ufmt.Sprintf(
+	// 		"--- played x=%d y=%d height=%d path=%s error:%s",
+	// 		x, y, std.GetHeight(), path, "",
+	// 	)
+	// }
 	return out
 }
 

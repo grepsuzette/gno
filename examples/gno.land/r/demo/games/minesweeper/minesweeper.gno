@@ -50,9 +50,9 @@ func BoardFromRepr(hexstate string) *Board {
 	} else {
 		for i, o := range state {
 			board.cells[i/Width][i%Width] = Cell{
-				IsMine:        ((o & 0b0100000) >> 5) == 1,
-				IsRevealed:    ((o & 0b010000) >> 4) == 1,
-				AdjacentMines: int(o & 0b001111),
+				IsMine:        ((o & 0b_0010_0000) >> 5) == 1,
+				IsRevealed:    ((o & 0b_0001_0000) >> 4) == 1,
+				AdjacentMines: int(o & 0b_0000_1111),
 			}
 		}
 	}
@@ -74,15 +74,44 @@ func (b Board) ToHexRepr() string {
 			isRevealed = 1
 		}
 		builder.WriteByte(
-			0b00000000 | (isMine << 5) | (isRevealed << 4) | (uint8(cell.AdjacentMines)),
+			0b_0000_0000 | (isMine << 5) | (isRevealed << 4) | (uint8(cell.AdjacentMines)),
 		)
 	}
 	return hex.EncodeToString([]byte(builder.String()))
 }
 
-func (b *Board) Reveal(x, y int) {
+// show the board as a string,
+// respective of the revealed status of the squares unless `force` is true.
+func (b *Board) show(force bool) string {
+	var buf strings.Builder
+	for y := range b.cells {
+		for x := range b.cells[y] {
+			cell := b.cells[y][x]
+			if cell.IsRevealed || force {
+				if cell.IsMine {
+					buf.WriteRune('+')
+				} else if cell.AdjacentMines == 0 {
+					buf.WriteRune('.')
+				} else {
+					buf.WriteRune('0' + int32(cell.AdjacentMines))
+				}
+			} else {
+				buf.WriteRune('?')
+			}
+		}
+		buf.WriteRune('\n')
+	}
+	return buf.String()
+}
+
+// Reveal a square, using some kind of floodfill, and return
+// whether we are still alive after that...
+func (b *Board) Reveal(x, y int) bool {
+	if x < 0 || x >= Width || y < 0 || y >= Height {
+		panic("Invalid input. Enter valid coordinates.")
+	}
 	if b.cells[y][x].IsRevealed || b.cells[y][x].IsMine {
-		return
+		return !b.cells[y][x].IsMine
 	}
 	b.cells[y][x].IsRevealed = true
 	if b.cells[y][x].AdjacentMines == 0 {
@@ -98,6 +127,7 @@ func (b *Board) Reveal(x, y int) {
 			}
 		}
 	}
+	return true
 }
 
 func (b *Board) placeMines() {
