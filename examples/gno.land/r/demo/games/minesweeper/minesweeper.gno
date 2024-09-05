@@ -18,18 +18,23 @@ type Cell struct {
 	AdjacentMines int
 }
 
-type Board [][]*Cell
-
-func NewBoard() *Board {
-	board := make(Board, Height)
-	for i := range board {
-		board[i] = make([]*Cell, Width)
-	}
-	return &board
+type Board struct {
+	cells [][]Cell // height, width
+	// todo probably add fields width and height
 }
 
-// first let's just use plain board
-// there are 3 layers.
+func NewBoard() *Board {
+	var cells [][]Cell = make([][]Cell, Height)
+	for i := range cells {
+		cells[i] = make([]Cell, Width)
+	}
+	return &Board{
+		cells: cells,
+	}
+}
+
+// An empty hexstate will create a board and place mines.
+// Otherwise a board is recovered from the state if possible (panic otherwise).
 // input is a hex string where each hex-decoded byte 8 bits is 0b00ZYXXXX
 //
 //	XXXX: count of adjacent mines (4bits, valid ∈ 0-8),
@@ -44,7 +49,7 @@ func BoardFromRepr(hexstate string) *Board {
 		panic("invalid state length")
 	} else {
 		for i, o := range state {
-			board[i/3][i%3] = &Cell{
+			board.cells[i/Width][i%Width] = Cell{
 				IsMine:        ((o & 0b0100000) >> 5) == 1,
 				IsRevealed:    ((o & 0b010000) >> 4) == 1,
 				AdjacentMines: int(o & 0b001111),
@@ -55,10 +60,11 @@ func BoardFromRepr(hexstate string) *Board {
 }
 
 // ToHexRepr is the opposite operation of BoardFromRepr
+// it outputs an hexadecimal string
 func (b Board) ToHexRepr() string {
 	var builder strings.Builder
 	for i := 0; i < Width*Height; i++ {
-		cell := b[i/3][i%3]
+		cell := b.cells[i/Width][i%Width]
 		var isMine uint8 = 0
 		var isRevealed uint8 = 0
 		if cell.IsMine {
@@ -71,15 +77,15 @@ func (b Board) ToHexRepr() string {
 			0b00000000 | (isMine << 5) | (isRevealed << 4) | (uint8(cell.AdjacentMines)),
 		)
 	}
-	return builder.String()
+	return hex.EncodeToString([]byte(builder.String()))
 }
 
-func (b Board) Reveal(x, y int) {
-	if b[y][x].IsRevealed || b[y][x].IsMine {
+func (b *Board) Reveal(x, y int) {
+	if b.cells[y][x].IsRevealed || b.cells[y][x].IsMine {
 		return
 	}
-	b[y][x].IsRevealed = true
-	if b[y][x].AdjacentMines == 0 {
+	b.cells[y][x].IsRevealed = true
+	if b.cells[y][x].AdjacentMines == 0 {
 		for i := -1; i <= 1; i++ {
 			for j := -1; j <= 1; j++ {
 				if i == 0 && j == 0 {
@@ -94,19 +100,19 @@ func (b Board) Reveal(x, y int) {
 	}
 }
 
-func (b Board) placeMines() {
+func (b *Board) placeMines() {
 	for i := 0; i < Mines; i++ {
 		x, y := Intn(Width), Intn(Height)
-		if b[y][x].IsMine {
+		if b.cells[y][x].IsMine {
 			i-- // Retry if mine is already placed
 			continue
 		}
-		b[y][x].IsMine = true
+		b.cells[y][x].IsMine = true
 		b.updateAdjacentMines(x, y)
 	}
 }
 
-func (b Board) updateAdjacentMines(x, y int) {
+func (b *Board) updateAdjacentMines(x, y int) {
 	for i := -1; i <= 1; i++ {
 		for j := -1; j <= 1; j++ {
 			if i == 0 && j == 0 {
@@ -114,7 +120,7 @@ func (b Board) updateAdjacentMines(x, y int) {
 			}
 			adjX, adjY := x+j, y+i
 			if adjX >= 0 && adjX < Width && adjY >= 0 && adjY < Height {
-				b[adjY][adjX].AdjacentMines++
+				b.cells[adjY][adjX].AdjacentMines++
 			}
 		}
 	}

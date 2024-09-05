@@ -41,7 +41,7 @@ func Render(path string) string {
 		panic("Invalid input. Enter valid coordinates.")
 	} else if x > -1 && y > -1 {
 		board.Reveal(x, y)
-		if board[y][x].IsMine {
+		if board.cells[y][x].IsMine {
 			lost = true
 			title = "🤯🤯🤯🤯🤯\n\n"
 			title += "Nice try, boomer 🤷\n\n"
@@ -49,8 +49,8 @@ func Render(path string) string {
 		}
 		out += heading(title)
 		for y := range board {
-			for x := range board[y] {
-				out += button(x, y, board[y][x], lost)
+			for x := range board.cells[y] {
+				out += button(x, y, board.cells[y][x], lost)
 			}
 			out += "<br />"
 		}
@@ -65,7 +65,7 @@ func Render(path string) string {
 	return out
 }
 
-func button(x, y int, cell *Cell, lost bool) string {
+func button(x, y int, cell Cell, lost bool) string {
 	var classes []string
 	revealed := cell.IsRevealed || lost
 	if revealed {
