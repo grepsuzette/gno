@@ -9,7 +9,7 @@ import (
 const (
 	Width  = 8
 	Height = 8
-	Mines  = 10
+	// Mines  = 4 They are random, from 4 (easy) to 10 (difficult) !
 )
 
 type Cell struct {
@@ -131,7 +131,9 @@ func (b *Board) Reveal(x, y int) bool {
 }
 
 func (b *Board) placeMines() {
-	for i := 0; i < Mines; i++ {
+	// Mines vary between 4 (easy) to 10 (relatively difficult)
+	mines := 4 + Intn(10-4)
+	for i := 0; i < mines; i++ {
 		x, y := Intn(Width), Intn(Height)
 		if b.cells[y][x].IsMine {
 			i-- // Retry if mine is already placed
