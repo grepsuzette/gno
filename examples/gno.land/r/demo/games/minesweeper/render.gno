@@ -39,25 +39,25 @@ func Render(path string) string {
 	}
 	won := !lost && didWin(board)
 
-	if won {
-		out += `<center><b>You are a true underwater hero!</b><br><br>
+	// if won {
+	// 	out += `<center><b>You are a true underwater hero!</b><br><br>
 
-<img src="` + urlImage + `" width=256 />
+	// <img src="` + urlImage + `" width=256 />
 
-[ [New game](/r/demo/games/minesweeper) | [Back to demo/games](/r/demo/games) ]</center>
-`
-	} else {
-		// display the minefield as a matrix of buttons
-		out += header(won, lost)
-		repr := board.ToHexRepr()
-		for j := range board.cells {
-			for i := range board.cells[j] {
-				out += button(i, j, board.cells[j][i], lost, repr, x, y)
-			}
-			out += "<br />"
+	// [ [New game](/r/demo/games/minesweeper) | [Back to demo/games](/r/demo/games) ]</center>
+	// `
+	// } else {
+	// display the minefield as a matrix of buttons
+	out += header(won, lost)
+	repr := board.ToHexRepr()
+	for j := range board.cells {
+		for i := range board.cells[j] {
+			out += button(i, j, board.cells[j][i], won, lost, repr, x, y)
 		}
-		out += footer(won, lost)
+		out += "<br />"
 	}
+	out += footer(won, lost)
+	// }
 
 	// if debug {
 	// 	out += ufmt.Sprintf(
@@ -81,21 +81,21 @@ func didWin(board *Board) bool {
 	return missing == 0
 }
 
-func button(x, y int, cell Cell, lost bool, repr string, playedX, playedY int) string {
+func button(x, y int, cell Cell, won, lost bool, repr string, playedX, playedY int) string {
 	var char string
-	revealed := cell.IsRevealed || lost
+	revealed := cell.IsRevealed || lost || won
 	classes := []string{"btn"}
 	if revealed {
 		classes = append(classes, "d")
 	}
-	if playedX == x && playedY == y && lost {
+	if playedX == x && playedY == y && cell.IsMine && (lost || won) {
 		classes = append(classes, "exploded")
 	}
 	switch {
 	case !revealed:
 		char = "&nbsp;"
 	case cell.IsMine:
-		char = "💣"
+		char = ternary.String(lost, "💣", "🌈")
 	case cell.AdjacentMines <= 0:
 		char = "&nbsp;"
 	case cell.AdjacentMines > 8:
@@ -107,9 +107,13 @@ func button(x, y int, cell Cell, lost bool, repr string, playedX, playedY int) s
 	// if ?querystring were allowed, we could then use <button> for this.
 	// return "<button class='...'>" + char + "</button>"
 	// instead <a> will be used for now
+	link := ternary.String(lost || won, "#", ufmt.Sprintf(
+		"/r/demo/games/minesweeper:state=%s&x=%d&y=%d",
+		repr, x, y,
+	))
 	return ufmt.Sprintf(
-		`<a href="/r/demo/games/minesweeper:state=%s&x=%d&y=%d" class="%s">%s</a>`,
-		repr, x, y, strings.Join(classes, " "), char,
+		`<a href="%s" draggable="false" class="%s">%s</a>`,
+		link, strings.Join(classes, " "), char,
 	)
 }
 
@@ -130,6 +134,8 @@ func css() string {
         cursor: pointer;
         font-weight: 800;
 		text-decoration: none;
+		draggable: none;
+		user-select: none;
     }
     form button.d, form a.btn.d {
         cursor: default;
@@ -221,43 +227,51 @@ func css() string {
 }
 
 func header(won, lost bool) string {
-	var title string
+	var title, legend string
 	if won {
-		a := []string{
-			"Senpai, you’ve made the ocean proud with your victory!",
-			"You’ve got the heart of a true ocean explorer!",
-			"Bravo! You’ve turned the tide of fate!",
-		}
-		s := a[Intn(len(a))]
-		title = "<strong>" + s + "<br /> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;/</strong>"
+		title = "You saved my underwater realm!"
+		// unlock nft/badge?
+		legend = `
+		🐠 = hooray!<br>
+		🦐 = so brave<br>
+		🦈 = thank you<br>
+		🐳 = well done<br>`
 	} else if !lost {
-		title = "<strong>Save me, my underwater realm is threatened by water mines.<br /> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;/</strong>"
-	} else {
-		// Nice try, boomer 🤷
-		title = "<b>Ayaa!!</b> 🤯🤯🤯🤯🤯\n\n"
-		title += "Alas you hit a mine."
-	}
-	return `<form>
-` + title + `
-<div id="board" ` + ternary.String(lost, "class='lost'", "") + `>
-<div id="left">
-<img src="` + urlImage + `" width=128 title="I was drawn by Vincent Le Moign, CC BY 4.0 via Wikimedia Commons" /><br>
+		title = "Save me, my underwater realm is threatened by water mines."
+		legend = `
 🐠 = yes<br>
 🦐 = it's true<br>
 🦈 = yep<br>
 🐳 = true that<br>
 
-[< quit to games](/r/demo/games)
+[< quit to games](/r/demo/games)`
+	} else {
+		// Nice try, boomer 🤷
+		// title = "<b>Ayaa!!</b> 🤯🤯🤯🤯🤯\n\n"
+		// title += "Alas you hit a mine."
+		title = "Alas you hit a mine!"
+		// legend = `
+		// 🐠 = yes<br>
+		// 🦐 = it's true<br>
+		// 🦑 = please<br>
+		// 🐙 = help<br>
+		// 🦈 = yep<br>
+		// 🐳 = true that<br>`
+	}
 
-</div>
+	return `<form><strong>` + title + `<br /> &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;/</strong>
+<div id="board" ` + ternary.String(lost, "class='lost'", "") + `>
+<div id="left">
+<img src="` + urlImage + `" width=128 title="I was drawn by Vincent Le Moign, CC BY 4.0 via Wikimedia Commons" /><br>` + legend + `</div>
 <div id="right">
 `
 }
 
 func footer(won, lost bool) string {
 	out := ``
-	if won || lost {
-		out += "</div>\n</div>\n[ [New game](/r/demo/games/minesweeper) | " +
+
+	if lost || won {
+		out += "</div>\n</div>\n\n[ [New game](/r/demo/games/minesweeper) | " +
 			"[Back to demo/games](/r/demo/games) ]\n\n"
 	}
 	out += `
