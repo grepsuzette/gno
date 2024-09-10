@@ -22,6 +22,7 @@ func renderGames() string {
 		{"shifumi", "games/shifumi", []string{"mvertes"}, "a very simple rock, paper, scissors game"},
 		{"tictactoe", "games/tictactoe", []string{"grepsuzette", "moul"}, "CPU vs Human tictactoe, no need for a wallet"},
 		{"minesweeper", "games/minesweeper", []string{"grepsuzette"}, "a classic productivity tool"},
+		{"poc_css_chess_scandinavian", "games/poc_css_chess_scandinavian", []string{"grepsuzette"}, "proof of concept css animations"},
 	} {
 		b.WriteString(ufmt.Sprintf(
 			"* [%s](%s): %s by %s\n",
